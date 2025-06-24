@@ -6,97 +6,108 @@ use JSON::MaybeXS qw(decode_json encode_json);
 use Encode qw(decode);
 use Getopt::Long;
 use Scalar::Util 'looks_like_number';
+use LWP::UserAgent;
 
 # Command-line options
 my $file;
 my $github_mode = 0;
+my $dynamic_mode = 0;
 GetOptions(
-    "file=s"   => \$file,
-    "github"   => \$github_mode,
-) or die "Usage: $0 --file input.html [--github]\n";
-die "Usage: $0 --file input.html [--github]\n" unless $file;
+	"file=s"	=> \$file,
+	"github"	=> \$github_mode,
+	"dynamic"   => \$dynamic_mode,
+) or die "Usage: $0 --file input.html [--github] [--dynamic]\n";
+die "Usage: $0 --file input.html [--github] [--dynamic]\n" unless $file;
 
 # Global array to collect SARIF results during validation.
 my @sarif_results;
+
+# Global hash to store dynamic vocabulary (if requested)
+my %dynamic_schema;
+if ($dynamic_mode) {
+	%dynamic_schema = load_dynamic_vocabulary();
+	unless (%dynamic_schema) {
+		warn "Dynamic vocabulary could not be loaded.\n";
+	}
+}
 
 #-----------------------------------------------------------------
 # Helper: push_validation
 # Centralizes error/warning message production.
 sub push_validation {
-    my ($rule, $message, $location) = @_;
-    if ($github_mode) {
-        push @sarif_results, {
-            ruleId    => $rule,
-            level     => "error",
-            message   => { text => $message },
-            locations => [{
-                physicalLocation => {
-                    artifactLocation => { uri => $file }
-                }
-            }],
-        };
-    } else {
-        print "✗ [$rule] $message at $location\n";
-    }
+	my ($rule, $message, $location) = @_;
+	if ($github_mode) {
+		push @sarif_results, {
+			ruleId	=> $rule,
+			level	 => "error",
+			message   => { text => $message },
+			locations => [{
+				physicalLocation => {
+					artifactLocation => { uri => $file }
+				}
+			}],
+		};
+	} else {
+		print "✗ [$rule] $message at $location\n";
+	}
 }
 
 #-----------------------------------------------------------------
 # Helper: is_valid_datetime
 # Validates that the given value matches YYYY-MM-DD or YYYY-MM-DDTHH:MM(:SS)?
 sub is_valid_datetime {
-    my $val = shift;
-    return $val =~ /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?$/;
+	my $val = shift;
+	return $val =~ /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?$/;
 }
 
 #-----------------------------------------------------------------
 # Cross-field validation for MusicEvent performer.
 # Ensures that if a MusicEvent defines a 'performer', its @type must be either PerformingGroup or Person.
 sub validate_performer {
-    my ($entity, $currentPath) = @_;
-    if (exists $entity->{performer}) {
-        my $perf = $entity->{performer};
-        my @perfs = (ref($perf) eq 'ARRAY') ? @$perf : ($perf);
-        foreach my $p (@perfs) {
-            if (ref $p eq 'HASH') {
-                unless ($p->{'@type'} && ($p->{'@type'} =~ /^(PerformingGroup|Person)$/)) {
-                    push_validation("SCHEMA005", "Performer must be of type PerformingGroup or Person", "$currentPath->performer");
-                }
-            } else {
-                push_validation("SCHEMA005", "Performer invalid format: expected JSON object", "$currentPath->performer");
-            }
-        }
-    }
+	my ($entity, $currentPath) = @_;
+	if (exists $entity->{performer}) {
+		my $perf = $entity->{performer};
+		my @perfs = (ref($perf) eq 'ARRAY') ? @$perf : ($perf);
+		foreach my $p (@perfs) {
+			if (ref $p eq 'HASH') {
+				unless ($p->{'@type'} && ($p->{'@type'} =~ /^(PerformingGroup|Person)$/)) {
+					push_validation("SCHEMA005", "Performer must be of type PerformingGroup or Person", "$currentPath->performer");
+				}
+			} else {
+				push_validation("SCHEMA005", "Performer invalid format: expected JSON object", "$currentPath->performer");
+			}
+		}
+	}
 }
 
 #-----------------------------------------------------------------
-# Expanded schema definition.
+# Expanded built‑in schema definition.
 # Each type defines:
-#  - required: required property names.
-#  - nested: properties whose values are nested objects to validate (using a specified type).
-#  - property_validations: custom validations (e.g. checking formats such as dates).
-#  - enum: for properties with specific allowed values.
+#  - required: property names that must exist.
+#  - nested: properties that are nested objects (validated using another type).
+#  - property_validations: custom validations (e.g. checking that 'startdate' is a valid date).
+#  - enum: for properties that must match one of a given set.
 my %schema = (
-    MusicEvent => {
-        required => [qw(name startdate location)],
-        # "location" is a nested PostalAddress.
-        nested   => { location => 'PostalAddress' },
-        property_validations => {
-            startdate => \&is_valid_datetime,
-        },
-    },
-    PostalAddress => {
-        required => [qw(addressCountry addressLocality)],
-        # Enumerated allowed values (example: you can extend this list per your requirements).
-        enum => {
-            addressCountry => [qw(United_States Canada United_Kingdom)],
-        },
-    },
-    PerformingGroup => {
-        required => [qw(name)],
-    },
-    Person => {
-        required => [qw(name)],
-    },
+	MusicEvent => {
+		required => [qw(name startdate location)],
+		nested   => { location => 'PostalAddress' },
+		property_validations => {
+			startdate => \&is_valid_datetime,
+		},
+	},
+	PostalAddress => {
+		required => [qw(addressCountry addressLocality)],
+		enum => {
+			# Allowed country values for demonstration. (Note: these are sample strings.)
+			addressCountry => [qw(United_States Canada United_Kingdom)],
+		},
+	},
+	PerformingGroup => {
+		required => [qw(name)],
+	},
+	Person => {
+		required => [qw(name)],
+	},
 );
 
 #-----------------------------------------------------------------
@@ -108,147 +119,227 @@ close $fh;
 my $html = decode('Windows-1252', $raw_content);
 
 #-----------------------------------------------------------------
-# Parse HTML using Mojo::DOM (tolerates malformed markup).
+# Parse the HTML using Mojo::DOM (tolerates malformed markup).
 my $dom = Mojo::DOM->new($html);
 my $scripts = $dom->find('script[type="application/ld+json"]');
 
 foreach my $script ($scripts->each) {
-    my $json_text = $script->all_text;
-    $json_text =~ s/^\s+|\s+$//g;
-    next unless length $json_text;
-    
-    my $data = eval { decode_json($json_text) };
-    if ($@ || !$data) {
-        warn "Invalid JSON: $@\n";
-        next;
-    }
-    
-    unless ($github_mode) {
-        print "Found Schema.org block:\n";
-    }
-    # Process the block (array or single object).
-    if (ref $data eq 'ARRAY') {
-        foreach my $entity (@$data) {
-            validate_entity($entity, 0, '');
-        }
-    }
-    else {
-        validate_entity($data, 0, '');
-    }
+	my $json_text = $script->all_text;
+	$json_text =~ s/^\s+|\s+$//g;
+	next unless length $json_text;
+	
+	my $data = eval { decode_json($json_text) };
+	if ($@ || !$data) {
+		warn "Invalid JSON: $@\n";
+		next;
+	}
+	
+	unless ($github_mode) {
+		print "Found Schema.org block:\n";
+	}
+	# Process the block (array or single object)
+	if (ref $data eq 'ARRAY') {
+		foreach my $entity (@$data) {
+			validate_entity($entity, 0, '');
+		}
+	}
+	else {
+		validate_entity($data, 0, '');
+	}
 }
 
 #-----------------------------------------------------------------
 # If in GitHub mode, output SARIF report.
 if ($github_mode) {
-    my $sarif_output = {
-        version => "2.1.0",
-        runs    => [
-            {
-                tool => {
-                    driver => {
-                        name             => "Schema.org Validator",
-                        informationUri   => "https://schema.org",
-                        version          => "1.1",
-                        rules            => [
-                            { id => "SCHEMA000", name => 'Missing @type' },
-                            { id => "SCHEMA001", name => "Missing required property" },
-                            { id => "SCHEMA003", name => "Invalid property format" },
-                            { id => "SCHEMA004", name => "Unexpected enumerated value" },
-                            { id => "SCHEMA005", name => "Invalid performer type" },
-                            { id => "SCHEMA002", name => "Unknown type" },
-                        ],
-                    },
-                },
-                results => \@sarif_results,
-            },
-        ],
-    };
-    open my $sfh, '>', "schema_validation.sarif" or die "Can't open output SARIF file: $!";
-    print $sfh encode_json($sarif_output);
-    close $sfh;
-    print "SARIF output written to schema_validation.sarif\n";
+	my $sarif_output = {
+		version => "2.1.0",
+		runs	=> [
+			{
+				tool => {
+					driver => {
+						name			 => "Schema.org Validator",
+						informationUri   => "https://schema.org",
+						version		  => "1.2",
+						rules			=> [
+							{ id => "SCHEMA000", name => 'Missing @type' },
+							{ id => "SCHEMA001", name => "Missing required property" },
+							{ id => "SCHEMA003", name => "Invalid property format" },
+							{ id => "SCHEMA004", name => "Unexpected enumerated value" },
+							{ id => "SCHEMA005", name => "Invalid performer type" },
+							{ id => "SCHEMA002", name => "Unknown type" },
+						],
+					},
+				},
+				results => \@sarif_results,
+			},
+		],
+	};
+	open my $sfh, '>', "schema_validation.sarif" or die "Can't open output SARIF file: $!";
+	print $sfh encode_json($sarif_output);
+	close $sfh;
+	print "SARIF output written to schema_validation.sarif\n";
 }
 
 #-----------------------------------------------------------------
 # Recursive function: validate_entity
-# Validates a JSON-LD block against our expanded schema.
+# Validates a JSON-LD block against the built‑in schema (and optionally dynamic schema).
 sub validate_entity {
-    my ($entity, $depth, $currentPath) = @_;
-    $depth         //= 0;
-    $currentPath   = defined $currentPath ? $currentPath : '';
-    my $indent = ' ' x ($depth * 2);
-    
-    unless (ref $entity eq 'HASH' && exists $entity->{'@type'}) {
-        push_validation("SCHEMA000", "Missing or invalid \@type", ($currentPath || 'root'));
-        return;
-    }
-    
-    my $type = $entity->{'@type'};
-    unless ($github_mode) {
-        print "${indent}• Type: $type at " . ($currentPath || 'root') . "\n";
-    }
-    
-    if (exists $schema{$type}) {
-        my $rules = $schema{$type};
-        # Check for required properties.
-        for my $req (@{ $rules->{required} }) {
-            unless (exists $entity->{$req}) {
-                push_validation("SCHEMA001", "Missing required property '$req' for type '$type'", ($currentPath || 'root'));
-            }
-        }
-        
-        # Check enumerated values.
-        if ($rules->{enum}) {
-            for my $prop (keys %{ $rules->{enum} }) {
-                if (exists $entity->{$prop}) {
-                    my @allowed = @{ $rules->{enum}->{$prop} };
-                    unless (grep { $_ eq $entity->{$prop} } @allowed) {
-                        push_validation("SCHEMA004", "Unexpected value '$entity->{$prop}' for property '$prop'", ($currentPath || 'root'));
-                    }
-                }
-            }
-        }
-        
-        # Custom property validations.
-        if ($rules->{property_validations}) {
-            for my $prop (keys %{ $rules->{property_validations} }) {
-                if (exists $entity->{$prop}) {
-                    my $validator = $rules->{property_validations}->{$prop};
-                    unless ($validator->($entity->{$prop})) {
-                        push_validation("SCHEMA003", "Invalid format for property '$prop'", ($currentPath || 'root'));
-                    }
-                }
-            }
-        }
-        
-        # Validate nested objects.
-        if ($rules->{nested}) {
-            for my $prop (keys %{ $rules->{nested} }) {
-                if (exists $entity->{$prop}) {
-                    my $child = $entity->{$prop};
-                    my $childPath = $currentPath ? "$currentPath->$prop" : $prop;
-                    if (ref $child eq 'ARRAY') {
-                        for my $i (0 .. $#$child) {
-                            my $itemPath = $childPath . "[$i]";
-                            validate_entity($child->[$i], $depth + 1, $itemPath);
-                        }
-                    } elsif (ref $child eq 'HASH') {
-                        validate_entity($child, $depth + 1, $childPath);
-                    }
-                }
-            }
-        }
-        
-        # Cross-field check: validate MusicEvent performer.
-        if ($type eq 'MusicEvent') {
-            validate_performer($entity, $currentPath || 'root');
-        }
-        
-        unless ($github_mode) {
-            print "${indent}✓ $type passes basic validation at " . ($currentPath || 'root') . "\n\n";
-        }
-    }
-    else {
-        push_validation("SCHEMA002", "Unknown type '$type'. Skipping detailed rules check.", ($currentPath || 'root'));
-    }
+	my ($entity, $depth, $currentPath) = @_;
+	$depth		 //= 0;
+	$currentPath   = defined $currentPath ? $currentPath : '';
+	my $indent = ' ' x ($depth * 2);
+	
+	# Every valid block should at least have an '@type'
+	unless (ref $entity eq 'HASH' && exists $entity->{'@type'}) {
+		push_validation("SCHEMA000", "Missing or invalid \@type", ($currentPath || 'root'));
+		return;
+	}
+	
+	my $type = $entity->{'@type'};
+	unless ($github_mode) {
+		print "${indent}• Type: $type at " . ($currentPath || 'root') . "\n";
+	}
+	
+	if (exists $schema{$type}) {
+		my $rules = $schema{$type};
+		# Check required properties.
+		for my $req (@{ $rules->{required} }) {
+			unless (exists $entity->{$req}) {
+				push_validation("SCHEMA001", "Missing required property '$req' for type '$type'", ($currentPath || 'root'));
+			}
+		}
+		
+		# Check enumerated values.
+		if ($rules->{enum}) {
+			for my $prop (keys %{ $rules->{enum} }) {
+				if (exists $entity->{$prop}) {
+					my @allowed = @{ $rules->{enum}->{$prop} };
+					unless (grep { $_ eq $entity->{$prop} } @allowed) {
+						push_validation("SCHEMA004", "Unexpected value '$entity->{$prop}' for property '$prop'", ($currentPath || 'root'));
+					}
+				}
+			}
+		}
+		
+		# Custom property validations.
+		if ($rules->{property_validations}) {
+			for my $prop (keys %{ $rules->{property_validations} }) {
+				if (exists $entity->{$prop}) {
+					my $validator = $rules->{property_validations}->{$prop};
+					unless ($validator->($entity->{$prop})) {
+						push_validation("SCHEMA003", "Invalid format for property '$prop'", ($currentPath || 'root'));
+					}
+				}
+			}
+		}
+		
+		# Validate nested objects.
+		if ($rules->{nested}) {
+			for my $prop (keys %{ $rules->{nested} }) {
+				if (exists $entity->{$prop}) {
+					my $child = $entity->{$prop};
+					my $childPath = $currentPath ? "$currentPath->$prop" : $prop;
+					if (ref $child eq 'ARRAY') {
+						for my $i (0 .. $#$child) {
+							my $itemPath = $childPath . "[$i]";
+							validate_entity($child->[$i], $depth + 1, $itemPath);
+						}
+					} elsif (ref $child eq 'HASH') {
+						validate_entity($child, $depth + 1, $childPath);
+					}
+				}
+			}
+		}
+		
+		# Cross-field check: validate MusicEvent performer.
+		if ($type eq 'MusicEvent') {
+			validate_performer($entity, $currentPath || 'root');
+		}
+		
+		# ---- Dynamic Validation: Additional checks from Schema.org vocabulary ----
+		if ($dynamic_mode) {
+			if (exists $dynamic_schema{$type}) {
+				dynamic_validate_entity($entity, $type, ($currentPath || 'root'), $indent);
+			}
+			else {
+				push_validation("SCHEMA002", "No dynamic vocabulary definition for type '$type'", ($currentPath || 'root'));
+			}
+		}
+		
+		unless ($github_mode) {
+			print "${indent}✓ $type passes basic validation at " . ($currentPath || 'root') . "\n\n";
+		}
+	}
+	else {
+		push_validation("SCHEMA002", "Unknown type '$type'. Skipping detailed rules check.", ($currentPath || 'root'));
+	}
+}
+
+#-----------------------------------------------------------------
+# Dynamic validation using the Schema.org vocabulary.
+# For demonstration, it prints out a documentation comment (if available)
+# and makes a note that additional dynamic property validations could be performed.
+sub dynamic_validate_entity {
+	my ($entity, $type, $currentPath, $indent) = @_;
+	if (exists $dynamic_schema{$type}) {
+		my $def = $dynamic_schema{$type};
+		if (my $comment = $def->{'http://www.w3.org/2000/01/rdf-schema#comment'}) {
+			my $cmt = ref($comment) eq 'ARRAY' ? $comment->[0] : $comment;
+			unless ($github_mode) {
+				print "${indent}Dynamic info for $type: $cmt\n";
+			}
+		}
+		# (Additional dynamic validations based on property ranges, inherited characteristics, etc.
+		#  can be implemented here by examining properties such as "http://schema.org/rangeIncludes".)
+		unless ($github_mode) {
+			print "${indent}Dynamic validations enabled for $type (additional property checks can be implemented here).\n";
+		}
+	}
+}
+
+# Loads the dynamic Schema.org vocabulary.
+# It now handles both compact and expanded keys.
+sub load_dynamic_vocabulary {
+	my $url = 'https://schema.org/version/latest/schemaorg-current-https.jsonld';
+
+	# Increase timeout for reliability.
+	my $ua = LWP::UserAgent->new( timeout => 30 );
+	my $res = $ua->get($url);
+	if (!$res->is_success) {
+		warn "Failed to fetch dynamic vocabulary from $url: " . $res->status_line;
+		return ();
+	}
+	
+	my $content = $res->decoded_content;
+	my $data = eval { decode_json($content) };
+	if ($@) {
+		warn "Failed to parse dynamic vocabulary JSON: $@";
+		return ();
+	}
+	
+	my %vocab;
+	if (exists $data->{'@graph'} && ref($data->{'@graph'}) eq 'ARRAY') {
+		for my $item (@{ $data->{'@graph'} }) {
+			if (exists $item->{'@type'}) {
+				my $item_type = $item->{'@type'};
+				my $is_class = 0;
+				if (ref($item_type) eq 'ARRAY') {
+					$is_class = grep { $_ eq 'rdfs:Class' } @$item_type;
+				} else {
+					$is_class = ($item_type eq 'rdfs:Class');
+				}
+				if ($is_class) {
+					# Check for the class label in both compact and expanded forms.
+					my $label = $item->{'rdfs:label'} // $item->{'http://www.w3.org/2000/01/rdf-schema#label'};
+					next unless $label;  # Skip if a label isn't found.
+					$label = ref($label) eq 'ARRAY' ? $label->[0] : $label;
+					$vocab{$label} = $item;
+				}
+			}
+		}
+	} else {
+		warn "No '\@graph' key found in the vocabulary JSON.";
+	}
+	warn "Dynamic vocabulary loaded: " . scalar(keys %vocab) . " classes found.\n";
+	return %vocab;
 }
