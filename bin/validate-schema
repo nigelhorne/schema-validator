@@ -300,46 +300,73 @@ sub dynamic_validate_entity {
 # Loads the dynamic Schema.org vocabulary.
 # It now handles both compact and expanded keys.
 sub load_dynamic_vocabulary {
-	my $url = 'https://schema.org/version/latest/schemaorg-current-https.jsonld';
-
-	# Increase timeout for reliability.
-	my $ua = LWP::UserAgent->new( timeout => 30 );
-	my $res = $ua->get($url);
-	if (!$res->is_success) {
-		warn "Failed to fetch dynamic vocabulary from $url: " . $res->status_line;
-		return ();
-	}
-	
-	my $content = $res->decoded_content;
-	my $data = eval { decode_json($content) };
-	if ($@) {
-		warn "Failed to parse dynamic vocabulary JSON: $@";
-		return ();
-	}
-	
-	my %vocab;
-	if (exists $data->{'@graph'} && ref($data->{'@graph'}) eq 'ARRAY') {
-		for my $item (@{ $data->{'@graph'} }) {
-			if (exists $item->{'@type'}) {
-				my $item_type = $item->{'@type'};
-				my $is_class = 0;
-				if (ref($item_type) eq 'ARRAY') {
-					$is_class = grep { $_ eq 'rdfs:Class' } @$item_type;
-				} else {
-					$is_class = ($item_type eq 'rdfs:Class');
-				}
-				if ($is_class) {
-					# Check for the class label in both compact and expanded forms.
-					my $label = $item->{'rdfs:label'} // $item->{'http://www.w3.org/2000/01/rdf-schema#label'};
-					next unless $label;  # Skip if a label isn't found.
-					$label = ref($label) eq 'ARRAY' ? $label->[0] : $label;
-					$vocab{$label} = $item;
-				}
-			}
-		}
-	} else {
-		warn "No '\@graph' key found in the vocabulary JSON.";
-	}
-	warn 'Dynamic vocabulary loaded: ', scalar(keys %vocab), ' classes found.';
-	return %vocab;
+    my $cache_file     = "schemaorg_dynamic_vocabulary.jsonld";
+    my $cache_duration = 86400;  # Cache expires in 1 day (86400 seconds)
+    my $content;
+    my $use_cache = 0;
+    
+    if (-e $cache_file) {
+        my $mtime = (stat($cache_file))[9];
+        if ( time - $mtime < $cache_duration ) {
+            $use_cache = 1;
+        }
+    }
+    
+    if ($use_cache) {
+        # Read from the cache file
+        open my $cfh, '<', $cache_file or warn "Could not open cache file $cache_file: $!";
+        {
+            local $/;  # Slurp mode
+            $content = <$cfh>;
+        }
+        close $cfh;
+    }
+    else {
+        # Download the vocabulary from Schema.org
+        my $url = 'https://schema.org/version/latest/schemaorg-current-https.jsonld';
+        my $ua  = LWP::UserAgent->new( timeout => 30 );
+        my $res = $ua->get($url);
+        unless ($res->is_success) {
+            warn "Failed to fetch dynamic vocabulary from $url: " . $res->status_line;
+            return ();
+        }
+        $content = $res->decoded_content;
+        # Write the downloaded content to the cache file.
+        open my $cfh, '>', $cache_file or warn "Could not write to cache file $cache_file: $!";
+        print $cfh $content;
+        close $cfh;
+    }
+    
+    my $data = eval { decode_json($content) };
+    if ($@) {
+        warn "Failed to parse dynamic vocabulary JSON: $@";
+        return ();
+    }
+    
+    my %vocab;
+    if (exists $data->{'@graph'} && ref($data->{'@graph'}) eq 'ARRAY') {
+        for my $item (@{ $data->{'@graph'} }) {
+            if (exists $item->{'@type'}) {
+                my $item_type = $item->{'@type'};
+                my $is_class  = 0;
+                if (ref($item_type) eq 'ARRAY') {
+                    $is_class = grep { $_ eq 'rdfs:Class' } @$item_type;
+                } else {
+                    $is_class = ($item_type eq 'rdfs:Class');
+                }
+                if ($is_class) {
+                    my $label = $item->{'rdfs:label'} // $item->{'http://www.w3.org/2000/01/rdf-schema#label'};
+                    next unless $label;
+                    $label = (ref($label) eq 'ARRAY') ? $label->[0] : $label;
+                    $vocab{$label} = $item;
+                }
+            }
+        }
+    }
+    else {
+        warn "No '\@graph' key found in the vocabulary JSON.";
+    }
+    warn "Dynamic vocabulary loaded: " . scalar(keys %vocab) . " classes found.\n";
+    return %vocab;
 }
+
