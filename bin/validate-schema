@@ -99,8 +99,7 @@ foreach my $script ($scripts->each) {
 		foreach my $entity (@$data) {
 			validate_entity($entity, 0, '');
 		}
-	}
-	else {
+	} else {
 		validate_entity($data, 0, '');
 	}
 }
@@ -114,10 +113,10 @@ if ($github_mode) {
 			{
 				tool => {
 					driver => {
-						name			 => "Schema.org Validator",
-						informationUri => "https://schema.org",
-						version => "1.2",
-						rules		 => [
+						name => 'Schema.org Validator',
+						informationUri => 'https://schema.org',
+						version => '1.2',
+						rules => [
 							{ id => "SCHEMA000", name => 'Missing @type' },
 							{ id => "SCHEMA001", name => "Missing required property" },
 							{ id => "SCHEMA003", name => "Invalid property format" },
@@ -145,7 +144,7 @@ sub push_validation {
 	if ($github_mode) {
 		push @sarif_results, {
 			ruleId => $rule,
-			level	 => "error",
+			level => 'error',
 			message => { text => $message },
 			locations => [{
 				physicalLocation => {
@@ -191,7 +190,8 @@ sub validate_performer {
 # Validates a JSON-LD block against the built‑in schema (and optionally dynamic schema).
 sub validate_entity {
 	my ($entity, $depth, $currentPath) = @_;
-	$depth		 //= 0;
+
+	$depth //= 0;
 	$currentPath = defined $currentPath ? $currentPath : '';
 	my $indent = ' ' x ($depth * 2);
 
@@ -266,8 +266,7 @@ sub validate_entity {
 		if ($dynamic_mode) {
 			if (exists $dynamic_schema{$type}) {
 				dynamic_validate_entity($entity, $type, ($currentPath || 'root'), $indent);
-			}
-			else {
+			} else {
 				push_validation("SCHEMA002", "No dynamic vocabulary definition for type '$type'", ($currentPath || 'root'));
 			}
 		}
@@ -291,10 +290,9 @@ sub validate_property_format {
 	return unless defined $range;
 
 	my @expected_types;
-	if (ref($range) eq 'ARRAY') {
-		@expected_types = @$range;
-	}
-	else {
+	if(ref($range) eq 'ARRAY') {
+		@expected_types = @{$range};
+	} else {
 		@expected_types = ($range);
 	}
 
@@ -302,8 +300,8 @@ sub validate_property_format {
 	foreach my $expected (@expected_types) {
 		# Expected type might be a hash reference (with @id) or a scalar.
 		my $expected_type = ref($expected) ? ($expected->{'@id'} || '') : $expected;
-		if ($expected_type eq 'http://schema.org/Date' || $expected_type eq 'Date') {
-			if ($value =~ /^\d{4}-\d{2}-\d{2}$/) { $valid = 1; last; }
+		if($expected_type eq 'http://schema.org/Date' || $expected_type eq 'Date') {
+			if($value =~ /^\d{4}-\d{2}-\d{2}$/) { $valid = 1; last; }
 		}
 		elsif ($expected_type eq 'http://schema.org/DateTime' || $expected_type eq 'DateTime') {
 			if ($value =~ /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?$/) { $valid = 1; last; }
@@ -415,20 +413,21 @@ sub dynamic_validate_entity {
 
 # Loads the dynamic Schema.org vocabulary.
 # It now handles both compact and expanded keys.
-sub load_dynamic_vocabulary {
-	my $cache_file	 = "schemaorg_dynamic_vocabulary.jsonld";
+sub load_dynamic_vocabulary
+{
+	my $cache_file = 'schemaorg_dynamic_vocabulary.jsonld';
 	my $cache_duration = 86400;	# Cache expires in 1 day (86400 seconds)
 	my $content;
 	my $use_cache = 0;
 
 	if (-e $cache_file) {
 		my $mtime = (stat($cache_file))[9];
-		if ( time - $mtime < $cache_duration ) {
+		if(time - $mtime < $cache_duration) {
 			$use_cache = 1;
 		}
 	}
 
-	if ($use_cache) {
+	if($use_cache) {
 		# Read from the cache file
 		open my $cfh, '<', $cache_file or warn "Could not open cache file $cache_file: $!";
 		{
@@ -438,11 +437,40 @@ sub load_dynamic_vocabulary {
 		close $cfh;
 	} else {
 		# Download the vocabulary from Schema.org
+		if(eval { require HTTP::Cache::Transparent; }) {
+			HTTP::Cache::Transparent->import();
+			my $cache_dir;
+
+			if(my $e = $ENV{'CACHE_DIR'}) {
+				$cache_dir = File::Spec->catfile($e, 'http-cache-transparent');
+			} else {
+				require File::HomeDir;
+				File::HomeDir->import();
+
+				# $cache_dir = File::Spec->catfile(File::Spec->tmpdir(), 'cache', 'http-cache-transparent');
+				$cache_dir = File::Spec->catfile(File::HomeDir->my_home(), '.cache', 'http-cache-transparent');
+			}
+
+			if(!-d $cache_dir) {
+				mkdir $cache_dir, 02755 || die "$cache_dir: $@";
+			}
+			HTTP::Cache::Transparent::init({
+				BasePath => $cache_dir,
+				# Verbose => $opts{'v'} ? 1 : 0,
+				Verbose => 1,
+				NoUpdate => 60 * 60 * 24,
+				MaxAge => 30 * 24
+			}) || die "$0: $cache_dir: $!";
+		} else {
+			print "Consider installing HTTP::Cache::Transparent to reduce downloads\n";
+		}
+
 		my $url = 'https://schema.org/version/latest/schemaorg-current-https.jsonld';
-		my $ua = LWP::UserAgent->new( timeout => 30 );
+		my $ua = LWP::UserAgent->new(timeout => 30);
 		my $res = $ua->get($url);
-		unless ($res->is_success) {
-			warn "Failed to fetch dynamic vocabulary from $url: " . $res->status_line;
+
+		unless($res->is_success()) {
+			warn "Failed to fetch dynamic vocabulary from $url: ", $res->status_line();
 			return ();
 		}
 		$content = $res->decoded_content;
@@ -461,7 +489,7 @@ sub load_dynamic_vocabulary {
 	my %class_vocab;
 	my %prop_vocab;
 
-	if (exists $data->{'@graph'} && ref($data->{'@graph'}) eq 'ARRAY') {
+	if(exists $data->{'@graph'} && ref($data->{'@graph'}) eq 'ARRAY') {
 		for my $item (@{ $data->{'@graph'} }) {
 			next unless exists $item->{'@type'};
 			my $item_type = $item->{'@type'};
@@ -469,7 +497,7 @@ sub load_dynamic_vocabulary {
 			# Check for class definitions
 			my $is_class = 0;
 			if (ref($item_type) eq 'ARRAY') {
-				$is_class = grep { $_ eq 'rdfs:Class' } @$item_type;
+				$is_class = grep { $_ eq 'rdfs:Class' } @{$item_type};
 			} else {
 				$is_class = ($item_type eq 'rdfs:Class');
 			}
@@ -499,11 +527,11 @@ sub load_dynamic_vocabulary {
 	}
 
 	# Assign the populated hashes to the global variables.
-	%dynamic_schema	 = %class_vocab;
+	%dynamic_schema = %class_vocab;
 	%dynamic_properties = %prop_vocab;
 
 	warn 'Dynamic vocabulary loaded: ', scalar(keys %dynamic_schema),
-		 ' classes and ', scalar(keys %dynamic_properties), ' properties found.';
+		' classes and ', scalar(keys %dynamic_properties), ' properties found.';
 
 	return %dynamic_schema;
 }
