@@ -1,0 +1,2 @@
+      - name: Run unit tests
+        run: prove -l
