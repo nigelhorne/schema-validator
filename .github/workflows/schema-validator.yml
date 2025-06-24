@@ -26,7 +26,7 @@ jobs:
 
       - name: Run Schema.org validator
         run: |
-          perl bin/validate-schema.pl --file sample/sample.html --github
+          perl bin/validate-schema --file sample/sample.html --github
 
       - name: Upload SARIF report
         uses: github/codeql-action/upload-sarif@v3
