@@ -14,9 +14,10 @@ use LWP::UserAgent;
 my $file;
 my $github_mode = 0;
 my $dynamic_mode = 0;
+
 GetOptions(
-	"file=s"	=> \$file,
-	"github"	=> \$github_mode,
+	"file=s" => \$file,
+	"github" => \$github_mode,
 	"dynamic" => \$dynamic_mode,
 ) or die "Usage: $0 --file input.html [--github] [--dynamic]";
 
@@ -33,55 +34,6 @@ if ($dynamic_mode) {
 	%dynamic_schema = load_dynamic_vocabulary();
 	unless (%dynamic_schema) {
 		warn 'Dynamic vocabulary could not be loaded';
-	}
-}
-
-#-----------------------------------------------------------------
-# Helper: push_validation
-# Centralizes error/warning message production.
-sub push_validation {
-	my ($rule, $message, $location) = @_;
-	if ($github_mode) {
-		push @sarif_results, {
-			ruleId	=> $rule,
-			level	 => "error",
-			message => { text => $message },
-			locations => [{
-				physicalLocation => {
-					artifactLocation => { uri => $file }
-				}
-			}],
-		};
-	} else {
-		print "✗ [$rule] $message at $location\n";
-	}
-}
-
-#-----------------------------------------------------------------
-# Helper: is_valid_datetime
-# Validates that the given value matches YYYY-MM-DD or YYYY-MM-DDTHH:MM(:SS)?
-sub is_valid_datetime {
-	my $val = shift;
-	return $val =~ /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?$/;
-}
-
-#-----------------------------------------------------------------
-# Cross-field validation for MusicEvent performer.
-# Ensures that if a MusicEvent defines a 'performer', its @type must be either PerformingGroup or Person.
-sub validate_performer {
-	my ($entity, $currentPath) = @_;
-	if (exists $entity->{performer}) {
-		my $perf = $entity->{performer};
-		my @perfs = (ref($perf) eq 'ARRAY') ? @$perf : ($perf);
-		foreach my $p (@perfs) {
-			if (ref $p eq 'HASH') {
-				unless ($p->{'@type'} && ($p->{'@type'} =~ /^(PerformingGroup|Person)$/)) {
-					push_validation("SCHEMA005", "Performer must be of type PerformingGroup or Person", "$currentPath->performer");
-				}
-			} else {
-				push_validation("SCHEMA005", "Performer invalid format: expected JSON object", "$currentPath->performer");
-			}
-		}
 	}
 }
 
@@ -135,7 +87,7 @@ foreach my $script ($scripts->each) {
 
 	my $data = eval { decode_json($json_text) };
 	if ($@ || !$data) {
-		warn "Invalid JSON: $@\n";
+		warn "Invalid JSON: $@";
 		next;
 	}
 
@@ -164,8 +116,8 @@ if ($github_mode) {
 					driver => {
 						name			 => "Schema.org Validator",
 						informationUri => "https://schema.org",
-						version	=> "1.2",
-						rules			=> [
+						version => "1.2",
+						rules		 => [
 							{ id => "SCHEMA000", name => 'Missing @type' },
 							{ id => "SCHEMA001", name => "Missing required property" },
 							{ id => "SCHEMA003", name => "Invalid property format" },
@@ -186,6 +138,55 @@ if ($github_mode) {
 }
 
 #-----------------------------------------------------------------
+# Helper: push_validation
+# Centralizes error/warning message production.
+sub push_validation {
+	my ($rule, $message, $location) = @_;
+	if ($github_mode) {
+		push @sarif_results, {
+			ruleId => $rule,
+			level	 => "error",
+			message => { text => $message },
+			locations => [{
+				physicalLocation => {
+					artifactLocation => { uri => $file }
+				}
+			}],
+		};
+	} else {
+		print "✗ [$rule] $message at $location\n";
+	}
+}
+
+#-----------------------------------------------------------------
+# Helper: is_valid_datetime
+# Validates that the given value matches YYYY-MM-DD or YYYY-MM-DDTHH:MM(:SS)?
+sub is_valid_datetime {
+	my $val = shift;
+	return $val =~ /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?$/;
+}
+
+#-----------------------------------------------------------------
+# Cross-field validation for MusicEvent performer.
+# Ensures that if a MusicEvent defines a 'performer', its @type must be either PerformingGroup or Person.
+sub validate_performer {
+	my ($entity, $currentPath) = @_;
+	if (exists $entity->{performer}) {
+		my $perf = $entity->{performer};
+		my @perfs = (ref($perf) eq 'ARRAY') ? @$perf : ($perf);
+		foreach my $p (@perfs) {
+			if (ref $p eq 'HASH') {
+				unless ($p->{'@type'} && ($p->{'@type'} =~ /^(PerformingGroup|Person)$/)) {
+					push_validation("SCHEMA005", "Performer must be of type PerformingGroup or Person", "$currentPath->performer");
+				}
+			} else {
+				push_validation("SCHEMA005", "Performer invalid format: expected JSON object", "$currentPath->performer");
+			}
+		}
+	}
+}
+
+#-----------------------------------------------------------------
 # Recursive function: validate_entity
 # Validates a JSON-LD block against the built‑in schema (and optionally dynamic schema).
 sub validate_entity {
@@ -202,7 +203,7 @@ sub validate_entity {
 
 	my $type = $entity->{'@type'};
 	unless ($github_mode) {
-		print "${indent}• Type: $type at " . ($currentPath || 'root') . "\n";
+		print "${indent}• Type: $type at ", ($currentPath || 'root'), "\n";
 	}
 
 	if (exists $schema{$type}) {
@@ -272,7 +273,7 @@ sub validate_entity {
 		}
 
 		unless ($github_mode) {
-			print "${indent}✓ $type passes basic validation at " . ($currentPath || 'root') . "\n\n";
+			print "${indent}✓ $type passes basic validation at ", ($currentPath || 'root'), "\n\n";
 		}
 	} else {
 		push_validation("SCHEMA002", "Unknown type '$type'. Skipping detailed rules check.", ($currentPath || 'root'));
@@ -388,8 +389,7 @@ sub dynamic_validate_entity {
 								);
 							}
 						}
-					}
-					else {
+					} else {
 						# Scalar array element: validate format if a dynamic property definition exists.
 						if (exists $dynamic_properties{$prop}) {
 							my $prop_def = $dynamic_properties{$prop};
@@ -397,18 +397,16 @@ sub dynamic_validate_entity {
 						}
 					}
 				}
-			}
-			else {
+			} else {
 				# Scalar value: validate via dynamic property definition if available.
-				if (exists $dynamic_properties{$prop}) {
+				if(exists $dynamic_properties{$prop}) {
 					my $prop_def = $dynamic_properties{$prop};
 					validate_property_format($prop, $val, $prop_def, $childPath);
 				}
 			}
 		}
-	}
-	else {
-		push_validation("SCHEMA_DYN0",
+	} else {
+		push_validation('SCHEMA_DYN0',
 			"No dynamic vocabulary definition for type '$type'",
 			($currentPath || 'root')
 		);
