@@ -27,7 +27,7 @@ my %dynamic_schema;
 if ($dynamic_mode) {
 	%dynamic_schema = load_dynamic_vocabulary();
 	unless (%dynamic_schema) {
-		warn "Dynamic vocabulary could not be loaded.\n";
+		warn 'Dynamic vocabulary could not be loaded';
 	}
 }
 
@@ -127,13 +127,13 @@ foreach my $script ($scripts->each) {
 	my $json_text = $script->all_text;
 	$json_text =~ s/^\s+|\s+$//g;
 	next unless length $json_text;
-	
+
 	my $data = eval { decode_json($json_text) };
 	if ($@ || !$data) {
 		warn "Invalid JSON: $@\n";
 		next;
 	}
-	
+
 	unless ($github_mode) {
 		print "Found Schema.org block:\n";
 	}
@@ -188,18 +188,18 @@ sub validate_entity {
 	$depth		 //= 0;
 	$currentPath = defined $currentPath ? $currentPath : '';
 	my $indent = ' ' x ($depth * 2);
-	
+
 	# Every valid block should at least have an '@type'
 	unless (ref $entity eq 'HASH' && exists $entity->{'@type'}) {
 		push_validation("SCHEMA000", "Missing or invalid \@type", ($currentPath || 'root'));
 		return;
 	}
-	
+
 	my $type = $entity->{'@type'};
 	unless ($github_mode) {
 		print "${indent}• Type: $type at " . ($currentPath || 'root') . "\n";
 	}
-	
+
 	if (exists $schema{$type}) {
 		my $rules = $schema{$type};
 		# Check required properties.
@@ -208,7 +208,7 @@ sub validate_entity {
 				push_validation("SCHEMA001", "Missing required property '$req' for type '$type'", ($currentPath || 'root'));
 			}
 		}
-		
+
 		# Check enumerated values.
 		if ($rules->{enum}) {
 			for my $prop (keys %{ $rules->{enum} }) {
@@ -220,7 +220,7 @@ sub validate_entity {
 				}
 			}
 		}
-		
+
 		# Custom property validations.
 		if ($rules->{property_validations}) {
 			for my $prop (keys %{ $rules->{property_validations} }) {
@@ -232,7 +232,7 @@ sub validate_entity {
 				}
 			}
 		}
-		
+
 		# Validate nested objects.
 		if ($rules->{nested}) {
 			for my $prop (keys %{ $rules->{nested} }) {
@@ -250,12 +250,12 @@ sub validate_entity {
 				}
 			}
 		}
-		
+
 		# Cross-field check: validate MusicEvent performer.
 		if ($type eq 'MusicEvent') {
 			validate_performer($entity, $currentPath || 'root');
 		}
-		
+
 		# ---- Dynamic Validation: Additional checks from Schema.org vocabulary ----
 		if ($dynamic_mode) {
 			if (exists $dynamic_schema{$type}) {
@@ -265,108 +265,140 @@ sub validate_entity {
 				push_validation("SCHEMA002", "No dynamic vocabulary definition for type '$type'", ($currentPath || 'root'));
 			}
 		}
-		
+
 		unless ($github_mode) {
 			print "${indent}✓ $type passes basic validation at " . ($currentPath || 'root') . "\n\n";
 		}
-	}
-	else {
+	} else {
 		push_validation("SCHEMA002", "Unknown type '$type'. Skipping detailed rules check.", ($currentPath || 'root'));
 	}
 }
 
 #-----------------------------------------------------------------
-# Dynamic validation using the Schema.org vocabulary.
-# For demonstration, it prints out a documentation comment (if available)
-# and makes a note that additional dynamic property validations could be performed.
+# Extended Dynamic Validation using the Schema.org vocabulary.
+# In addition to printing available documentation, this version
+# checks each property of the entity. For any nested object or array
+# of objects, it verifies that the contained object has an "@type"
+# and that the type exists in the dynamic vocabulary.
 sub dynamic_validate_entity {
 	my ($entity, $type, $currentPath, $indent) = @_;
 	if (exists $dynamic_schema{$type}) {
 		my $def = $dynamic_schema{$type};
-		if (my $comment = $def->{'http://www.w3.org/2000/01/rdf-schema#comment'}) {
+		if (my $comment = $def->{'rdfs:comment'} // $def->{'http://www.w3.org/2000/01/rdf-schema#comment'}) {
 			my $cmt = ref($comment) eq 'ARRAY' ? $comment->[0] : $comment;
 			unless ($github_mode) {
 				print "${indent}Dynamic info for $type: $cmt\n";
 			}
 		}
-		# (Additional dynamic validations based on property ranges, inherited characteristics, etc.
-		#  can be implemented here by examining properties such as "http://schema.org/rangeIncludes".)
 		unless ($github_mode) {
-			print "${indent}Dynamic validations enabled for $type (additional property checks can be implemented here).\n";
+			print "${indent}Dynamic validations enabled for $type. Checking nested property types...\n";
 		}
+
+		# Iterate over all properties in the entity (except for metadata keys)
+		foreach my $prop (keys %$entity) {
+			next if $prop eq '@type' or $prop =~ /^@(context|id)$/;
+			my $val = $entity->{$prop};
+			my $childPath = $currentPath ? "$currentPath->$prop" : $prop;
+			if (ref($val) eq 'HASH') {
+				# If it's an object, check for an '@type'
+				unless (exists $val->{'@type'}) {
+					push_validation("SCHEMA_DYN1", "Missing nested \@type for property '$prop'", $childPath);
+				} else {
+					my $nested_type = $val->{'@type'};
+					unless (exists $dynamic_schema{$nested_type}) {
+						push_validation("SCHEMA_DYN2", "Unrecognized nested type '$nested_type' for property '$prop'", $childPath);
+					}
+				}
+			} elsif (ref($val) eq 'ARRAY') {
+				for my $i (0 .. $#$val) {
+					my $item = $val->[$i];
+					my $itemPath = $childPath . "[$i]";
+					if (ref($item) eq 'HASH') {
+						unless (exists $item->{'@type'}) {
+							push_validation("SCHEMA_DYN1", "Missing nested \@type in array element for property '$prop'", $itemPath);
+						} else {
+							my $nested_type = $item->{'@type'};
+							unless (exists $dynamic_schema{$nested_type}) {
+								push_validation("SCHEMA_DYN2", "Unrecognized nested type '$nested_type' in array for property '$prop'", $itemPath);
+							}
+						}
+					}
+				}
+			}
+		}
+	} else {
+		push_validation("SCHEMA_DYN0", "No dynamic vocabulary definition for type '$type'", ($currentPath || 'root'));
 	}
 }
 
 # Loads the dynamic Schema.org vocabulary.
 # It now handles both compact and expanded keys.
 sub load_dynamic_vocabulary {
-    my $cache_file     = "schemaorg_dynamic_vocabulary.jsonld";
-    my $cache_duration = 86400;  # Cache expires in 1 day (86400 seconds)
-    my $content;
-    my $use_cache = 0;
-    
-    if (-e $cache_file) {
-        my $mtime = (stat($cache_file))[9];
-        if ( time - $mtime < $cache_duration ) {
-            $use_cache = 1;
-        }
-    }
-    
-    if ($use_cache) {
-        # Read from the cache file
-        open my $cfh, '<', $cache_file or warn "Could not open cache file $cache_file: $!";
-        {
-            local $/;  # Slurp mode
-            $content = <$cfh>;
-        }
-        close $cfh;
-    }
-    else {
-        # Download the vocabulary from Schema.org
-        my $url = 'https://schema.org/version/latest/schemaorg-current-https.jsonld';
-        my $ua  = LWP::UserAgent->new( timeout => 30 );
-        my $res = $ua->get($url);
-        unless ($res->is_success) {
-            warn "Failed to fetch dynamic vocabulary from $url: " . $res->status_line;
-            return ();
-        }
-        $content = $res->decoded_content;
-        # Write the downloaded content to the cache file.
-        open my $cfh, '>', $cache_file or warn "Could not write to cache file $cache_file: $!";
-        print $cfh $content;
-        close $cfh;
-    }
-    
-    my $data = eval { decode_json($content) };
-    if ($@) {
-        warn "Failed to parse dynamic vocabulary JSON: $@";
-        return ();
-    }
-    
-    my %vocab;
-    if (exists $data->{'@graph'} && ref($data->{'@graph'}) eq 'ARRAY') {
-        for my $item (@{ $data->{'@graph'} }) {
-            if (exists $item->{'@type'}) {
-                my $item_type = $item->{'@type'};
-                my $is_class  = 0;
-                if (ref($item_type) eq 'ARRAY') {
-                    $is_class = grep { $_ eq 'rdfs:Class' } @$item_type;
-                } else {
-                    $is_class = ($item_type eq 'rdfs:Class');
-                }
-                if ($is_class) {
-                    my $label = $item->{'rdfs:label'} // $item->{'http://www.w3.org/2000/01/rdf-schema#label'};
-                    next unless $label;
-                    $label = (ref($label) eq 'ARRAY') ? $label->[0] : $label;
-                    $vocab{$label} = $item;
-                }
-            }
-        }
-    }
-    else {
-        warn "No '\@graph' key found in the vocabulary JSON.";
-    }
-    warn "Dynamic vocabulary loaded: " . scalar(keys %vocab) . " classes found.\n";
-    return %vocab;
-}
+	my $cache_file	 = "schemaorg_dynamic_vocabulary.jsonld";
+	my $cache_duration = 86400;  # Cache expires in 1 day (86400 seconds)
+	my $content;
+	my $use_cache = 0;
 
+	if (-e $cache_file) {
+		my $mtime = (stat($cache_file))[9];
+		if ( time - $mtime < $cache_duration ) {
+			$use_cache = 1;
+		}
+	}
+
+	if ($use_cache) {
+		# Read from the cache file
+		open my $cfh, '<', $cache_file or warn "Could not open cache file $cache_file: $!";
+		{
+			local $/;  # Slurp mode
+			$content = <$cfh>;
+		}
+		close $cfh;
+	} else {
+		# Download the vocabulary from Schema.org
+		my $url = 'https://schema.org/version/latest/schemaorg-current-https.jsonld';
+		my $ua = LWP::UserAgent->new( timeout => 30 );
+		my $res = $ua->get($url);
+		unless ($res->is_success) {
+			warn "Failed to fetch dynamic vocabulary from $url: " . $res->status_line;
+			return ();
+		}
+		$content = $res->decoded_content;
+		# Write the downloaded content to the cache file.
+		open my $cfh, '>', $cache_file or warn "Could not write to cache file $cache_file: $!";
+		print $cfh $content;
+		close $cfh;
+	}
+
+	my $data = eval { decode_json($content) };
+	if ($@) {
+		warn "Failed to parse dynamic vocabulary JSON: $@";
+		return ();
+	}
+
+	my %vocab;
+	if (exists $data->{'@graph'} && ref($data->{'@graph'}) eq 'ARRAY') {
+		for my $item (@{ $data->{'@graph'} }) {
+			if (exists $item->{'@type'}) {
+				my $item_type = $item->{'@type'};
+				my $is_class = 0;
+				if (ref($item_type) eq 'ARRAY') {
+					$is_class = grep { $_ eq 'rdfs:Class' } @$item_type;
+				} else {
+					$is_class = ($item_type eq 'rdfs:Class');
+				}
+				if ($is_class) {
+					my $label = $item->{'rdfs:label'} // $item->{'http://www.w3.org/2000/01/rdf-schema#label'};
+					next unless $label;
+					$label = (ref($label) eq 'ARRAY') ? $label->[0] : $label;
+					$vocab{$label} = $item;
+				}
+			}
+		}
+	}
+	else {
+		warn "No '\@graph' key found in the vocabulary JSON.";
+	}
+	warn "Dynamic vocabulary loaded: " . scalar(keys %vocab) . " classes found.\n";
+	return %vocab;
+}

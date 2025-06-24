@@ -87,4 +87,5 @@ sub load_dynamic_vocabulary {
     return %vocab;
 }
 
+
 1;
