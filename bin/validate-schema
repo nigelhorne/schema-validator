@@ -21,13 +21,13 @@ GetOptions(
 die "Usage: $0 --file input.html [--github] [--dynamic]\n" unless $file;
 
 
-my %dynamic_properties;  # Global variable to store property definitions
+my %dynamic_properties;	# Global variable to store property definitions
 
 # Global array to collect SARIF results during validation.
 my @sarif_results;
 
 # Global hash to store dynamic vocabulary (if requested)
-my %dynamic_schema;	  # Global variable to store class definitions
+my %dynamic_schema;	# Global variable to store class definitions
 if ($dynamic_mode) {
 	%dynamic_schema = load_dynamic_vocabulary();
 	unless (%dynamic_schema) {
@@ -418,7 +418,7 @@ sub dynamic_validate_entity {
 # It now handles both compact and expanded keys.
 sub load_dynamic_vocabulary {
 	my $cache_file	 = "schemaorg_dynamic_vocabulary.jsonld";
-	my $cache_duration = 86400;  # Cache expires in 1 day (86400 seconds)
+	my $cache_duration = 86400;	# Cache expires in 1 day (86400 seconds)
 	my $content;
 	my $use_cache = 0;
 
@@ -433,7 +433,7 @@ sub load_dynamic_vocabulary {
 		# Read from the cache file
 		open my $cfh, '<', $cache_file or warn "Could not open cache file $cache_file: $!";
 		{
-			local $/;  # Slurp mode
+			local $/;	# Slurp mode
 			$content = <$cfh>;
 		}
 		close $cfh;

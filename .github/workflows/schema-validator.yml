@@ -22,11 +22,11 @@ jobs:
       - name: Install CPAN dependencies
         run: |
           # cpanm --installdeps .
-          cpanm Mojo::DOM JSON::MaybeXS Encode Getopt::Long LWP::UserAgent
+          cpanm Mojo::DOM JSON::MaybeXS Encode Getopt::Long LWP::UserAgent LWP::Protocol::https
 
       - name: Run Schema.org validator
         run: |
-          perl bin/validate-schema --file sample/sample.html --github
+          perl bin/validate-schema --file samples/sample.html --github
 
       - name: Upload SARIF report
         uses: github/codeql-action/upload-sarif@v3
