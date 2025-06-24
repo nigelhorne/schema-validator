@@ -1,6 +1,7 @@
 #!/usr/bin/env perl
 use strict;
 use warnings;
+
 use Mojo::DOM;
 use JSON::MaybeXS qw(decode_json encode_json);
 use Encode qw(decode);
@@ -19,11 +20,14 @@ GetOptions(
 ) or die "Usage: $0 --file input.html [--github] [--dynamic]\n";
 die "Usage: $0 --file input.html [--github] [--dynamic]\n" unless $file;
 
+
+my %dynamic_properties;  # Global variable to store property definitions
+
 # Global array to collect SARIF results during validation.
 my @sarif_results;
 
 # Global hash to store dynamic vocabulary (if requested)
-my %dynamic_schema;
+my %dynamic_schema;	  # Global variable to store class definitions
 if ($dynamic_mode) {
 	%dynamic_schema = load_dynamic_vocabulary();
 	unless (%dynamic_schema) {
@@ -275,13 +279,60 @@ sub validate_entity {
 }
 
 #-----------------------------------------------------------------
-# Extended Dynamic Validation using the Schema.org vocabulary.
-# In addition to printing available documentation, this version
-# checks each property of the entity. For any nested object or array
-# of objects, it verifies that the contained object has an "@type"
-# and that the type exists in the dynamic vocabulary.
+
+# Helper: Validate a property’s format against its expected range from the dynamic vocabulary.
+sub validate_property_format {
+	my ($prop_name, $value, $prop_def, $location) = @_;
+
+	# Attempt to extract the expected type(s) from rangeIncludes.
+	my $range = $prop_def->{'http://schema.org/rangeIncludes'} // $prop_def->{'rangeIncludes'};
+	return unless defined $range;
+
+	my @expected_types;
+	if (ref($range) eq 'ARRAY') {
+		@expected_types = @$range;
+	}
+	else {
+		@expected_types = ($range);
+	}
+
+	my $valid = 0;
+	foreach my $expected (@expected_types) {
+		# Expected type might be a hash reference (with @id) or a scalar.
+		my $expected_type = ref($expected) ? ($expected->{'@id'} || '') : $expected;
+		if ($expected_type eq 'http://schema.org/Date' || $expected_type eq 'Date') {
+			if ($value =~ /^\d{4}-\d{2}-\d{2}$/) { $valid = 1; last; }
+		}
+		elsif ($expected_type eq 'http://schema.org/DateTime' || $expected_type eq 'DateTime') {
+			if ($value =~ /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?$/) { $valid = 1; last; }
+		}
+		elsif ($expected_type eq 'http://schema.org/Time' || $expected_type eq 'Time') {
+			if ($value =~ /^\d{2}:\d{2}(?::\d{2})?$/) { $valid = 1; last; }
+		}
+		elsif ($expected_type eq 'http://schema.org/Number' || $expected_type eq 'Number') {
+			if (defined $value && $value =~ /^\d+(\.\d+)?$/) { $valid = 1; last; }
+		}
+		elsif ($expected_type eq 'http://schema.org/Boolean' || $expected_type eq 'Boolean') {
+			if ($value =~ /^(?:true|false)$/i) { $valid = 1; last; }
+		}
+		# Extend with additional checks (e.g. URL, Text) as needed.
+	}
+
+	unless ($valid) {
+		push_validation("SCHEMA_DYNFMT",
+			"Value '$value' for property '$prop_name' does not conform to any expected format.",
+			$location
+		);
+	}
+}
+
+# Extended dynamic validation function.
+# Now, in addition to checking nested objects for a valid @type,
+# this function also examines scalar values (or arrays of scalars)
+# and validates their format via dynamic property definitions.
 sub dynamic_validate_entity {
 	my ($entity, $type, $currentPath, $indent) = @_;
+
 	if (exists $dynamic_schema{$type}) {
 		my $def = $dynamic_schema{$type};
 		if (my $comment = $def->{'rdfs:comment'} // $def->{'http://www.w3.org/2000/01/rdf-schema#comment'}) {
@@ -291,43 +342,75 @@ sub dynamic_validate_entity {
 			}
 		}
 		unless ($github_mode) {
-			print "${indent}Dynamic validations enabled for $type. Checking nested property types...\n";
+			print "${indent}Dynamic validations enabled for $type. Checking property formats...\n";
 		}
 
-		# Iterate over all properties in the entity (except for metadata keys)
+		# Examine every property in the entity (except for metadata keys).
 		foreach my $prop (keys %$entity) {
 			next if $prop eq '@type' or $prop =~ /^@(context|id)$/;
 			my $val = $entity->{$prop};
 			my $childPath = $currentPath ? "$currentPath->$prop" : $prop;
+
 			if (ref($val) eq 'HASH') {
-				# If it's an object, check for an '@type'
+				# Nested object: it must have an @type and be recognized.
 				unless (exists $val->{'@type'}) {
-					push_validation("SCHEMA_DYN1", "Missing nested \@type for property '$prop'", $childPath);
+					push_validation("SCHEMA_DYN1",
+						"Missing nested \@type for property '$prop'",
+						$childPath
+					);
 				} else {
 					my $nested_type = $val->{'@type'};
 					unless (exists $dynamic_schema{$nested_type}) {
-						push_validation("SCHEMA_DYN2", "Unrecognized nested type '$nested_type' for property '$prop'", $childPath);
+						push_validation("SCHEMA_DYN2",
+							"Unrecognized nested type '$nested_type' for property '$prop'",
+							$childPath
+						);
 					}
 				}
-			} elsif (ref($val) eq 'ARRAY') {
+			}
+			elsif (ref($val) eq 'ARRAY') {
 				for my $i (0 .. $#$val) {
 					my $item = $val->[$i];
 					my $itemPath = $childPath . "[$i]";
 					if (ref($item) eq 'HASH') {
 						unless (exists $item->{'@type'}) {
-							push_validation("SCHEMA_DYN1", "Missing nested \@type in array element for property '$prop'", $itemPath);
+							push_validation("SCHEMA_DYN1",
+								"Missing nested \@type in array element for property '$prop'",
+								$itemPath
+							);
 						} else {
 							my $nested_type = $item->{'@type'};
 							unless (exists $dynamic_schema{$nested_type}) {
-								push_validation("SCHEMA_DYN2", "Unrecognized nested type '$nested_type' in array for property '$prop'", $itemPath);
+								push_validation("SCHEMA_DYN2",
+									"Unrecognized nested type '$nested_type' in array for property '$prop'",
+									$itemPath
+								);
 							}
+						}
+					}
+					else {
+						# Scalar array element: validate format if a dynamic property definition exists.
+						if (exists $dynamic_properties{$prop}) {
+							my $prop_def = $dynamic_properties{$prop};
+							validate_property_format($prop, $item, $prop_def, $itemPath);
 						}
 					}
 				}
 			}
+			else {
+				# Scalar value: validate via dynamic property definition if available.
+				if (exists $dynamic_properties{$prop}) {
+					my $prop_def = $dynamic_properties{$prop};
+					validate_property_format($prop, $val, $prop_def, $childPath);
+				}
+			}
 		}
-	} else {
-		push_validation("SCHEMA_DYN0", "No dynamic vocabulary definition for type '$type'", ($currentPath || 'root'));
+	}
+	else {
+		push_validation("SCHEMA_DYN0",
+			"No dynamic vocabulary definition for type '$type'",
+			($currentPath || 'root')
+		);
 	}
 }
 
@@ -376,29 +459,52 @@ sub load_dynamic_vocabulary {
 		return ();
 	}
 
-	my %vocab;
+	my %class_vocab;
+	my %prop_vocab;
+
 	if (exists $data->{'@graph'} && ref($data->{'@graph'}) eq 'ARRAY') {
 		for my $item (@{ $data->{'@graph'} }) {
-			if (exists $item->{'@type'}) {
-				my $item_type = $item->{'@type'};
-				my $is_class = 0;
-				if (ref($item_type) eq 'ARRAY') {
-					$is_class = grep { $_ eq 'rdfs:Class' } @$item_type;
-				} else {
-					$is_class = ($item_type eq 'rdfs:Class');
-				}
-				if ($is_class) {
-					my $label = $item->{'rdfs:label'} // $item->{'http://www.w3.org/2000/01/rdf-schema#label'};
-					next unless $label;
-					$label = (ref($label) eq 'ARRAY') ? $label->[0] : $label;
-					$vocab{$label} = $item;
-				}
+			next unless exists $item->{'@type'};
+			my $item_type = $item->{'@type'};
+
+			# Check for class definitions
+			my $is_class = 0;
+			if (ref($item_type) eq 'ARRAY') {
+				$is_class = grep { $_ eq 'rdfs:Class' } @$item_type;
+			} else {
+				$is_class = ($item_type eq 'rdfs:Class');
+			}
+			if ($is_class) {
+				my $label = $item->{'rdfs:label'} // $item->{'http://www.w3.org/2000/01/rdf-schema#label'};
+				next unless $label;
+				$label = (ref($label) eq 'ARRAY') ? $label->[0] : $label;
+				$class_vocab{$label} = $item;
+			}
+
+			# Check for property definitions (e.g. items with @type 'rdf:Property')
+			my $is_prop = 0;
+			if (ref($item_type) eq 'ARRAY') {
+				$is_prop = grep { $_ eq 'rdf:Property' } @$item_type;
+			} else {
+				$is_prop = ($item_type eq 'rdf:Property');
+			}
+			if ($is_prop) {
+				my $label = $item->{'rdfs:label'} // $item->{'http://www.w3.org/2000/01/rdf-schema#label'};
+				next unless $label;
+				$label = (ref($label) eq 'ARRAY') ? $label->[0] : $label;
+				$prop_vocab{$label} = $item;
 			}
 		}
-	}
-	else {
+	} else {
 		warn "No '\@graph' key found in the vocabulary JSON.";
 	}
-	warn "Dynamic vocabulary loaded: " . scalar(keys %vocab) . " classes found.\n";
-	return %vocab;
+
+	# Assign the populated hashes to the global variables.
+	%dynamic_schema	 = %class_vocab;
+	%dynamic_properties = %prop_vocab;
+
+	warn 'Dynamic vocabulary loaded: ', scalar(keys %dynamic_schema),
+		 ' classes and ', scalar(keys %dynamic_properties), ' properties found.';
+
+	return %dynamic_schema;
 }
