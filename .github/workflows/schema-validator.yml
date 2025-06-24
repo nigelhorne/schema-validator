@@ -24,6 +24,6 @@ jobs:
           perl bin/validate-schema.pl --file sample/sample.html --github
 
       - name: Upload SARIF report
-        uses: github/codeql-action/upload-sarif@v2
+        uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: schema_validation.sarif
