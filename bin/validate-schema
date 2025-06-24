@@ -99,7 +99,7 @@ my %schema = (
 		required => [qw(addressCountry addressLocality)],
 		enum => {
 			# Allowed country values for demonstration. (Note: these are sample strings.)
-			addressCountry => [qw(United_States Canada United_Kingdom)],
+			addressCountry => [qw(United_States US Canada United_Kingdom)],
 		},
 	},
 	PerformingGroup => {
