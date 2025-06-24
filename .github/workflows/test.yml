@@ -1,2 +1,31 @@
+---
+name: Run Tests
+
+permissions:
+  contents: read
+
+on: [push, pull_request]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Perl
+        uses: shogo82148/actions-setup-perl@v1
+        with:
+          perl-version: '5.32'
+
+      - name: Install CPAN dependencies
+        run: |
+          # cpanm --installdeps .
+          cpanm Mojo::DOM JSON::MaybeXS Encode Getopt::Long LWP::UserAgent Test::Most FindBin
+
+      - name: Run Schema.org validator
+        run: |
+          perl bin/validate-schema --file sample/sample.html
+
       - name: Run unit tests
         run: prove -l
