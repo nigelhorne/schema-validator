@@ -1,6 +1,7 @@
 #!/usr/bin/env perl
 use strict;
 use warnings;
+use autodie qw(:all);
 
 use Mojo::DOM;
 use JSON::MaybeXS qw(decode_json encode_json);
@@ -17,9 +18,9 @@ GetOptions(
 	"file=s"	=> \$file,
 	"github"	=> \$github_mode,
 	"dynamic" => \$dynamic_mode,
-) or die "Usage: $0 --file input.html [--github] [--dynamic]\n";
-die "Usage: $0 --file input.html [--github] [--dynamic]\n" unless $file;
+) or die "Usage: $0 --file input.html [--github] [--dynamic]";
 
+die "Usage: $0 --file input.html [--github] [--dynamic]" unless $file;
 
 my %dynamic_properties;	# Global variable to store property definitions
 
@@ -156,14 +157,14 @@ foreach my $script ($scripts->each) {
 # If in GitHub mode, output SARIF report.
 if ($github_mode) {
 	my $sarif_output = {
-		version => "2.1.0",
-		runs	=> [
+		version => '2.1.0',
+		runs => [
 			{
 				tool => {
 					driver => {
 						name			 => "Schema.org Validator",
 						informationUri => "https://schema.org",
-						version		=> "1.2",
+						version	=> "1.2",
 						rules			=> [
 							{ id => "SCHEMA000", name => 'Missing @type' },
 							{ id => "SCHEMA001", name => "Missing required property" },
