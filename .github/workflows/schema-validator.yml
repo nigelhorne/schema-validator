@@ -22,7 +22,7 @@ jobs:
       - name: Install CPAN dependencies
         run: |
           # cpanm --installdeps .
-          cpanm Mojo::DOM JSON::MaybeXS Encode Getopt::Long
+          cpanm Mojo::DOM JSON::MaybeXS Encode Getopt::Long LWP::UserAgent
 
       - name: Run Schema.org validator
         run: |
