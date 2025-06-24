@@ -1,0 +1,29 @@
+name: Schema Validator
+
+on: [push, pull_request]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Perl
+        uses: shogo82148/actions-setup-perl@v1
+        with:
+          perl-version: '5.32'
+
+      - name: Install CPAN dependencies
+        run: |
+          cpanm --installdeps .
+          cpanm Mojo::DOM JSON::MaybeXS Encode Getopt::Long
+
+      - name: Run Schema.org validator
+        run: |
+          perl bin/validate-schema.pl --file sample/sample.html --github
+
+      - name: Upload SARIF report
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: schema_validation.sarif
