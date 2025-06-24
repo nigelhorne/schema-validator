@@ -15,7 +15,7 @@ my $dynamic_mode = 0;
 GetOptions(
 	"file=s"	=> \$file,
 	"github"	=> \$github_mode,
-	"dynamic"   => \$dynamic_mode,
+	"dynamic" => \$dynamic_mode,
 ) or die "Usage: $0 --file input.html [--github] [--dynamic]\n";
 die "Usage: $0 --file input.html [--github] [--dynamic]\n" unless $file;
 
@@ -40,7 +40,7 @@ sub push_validation {
 		push @sarif_results, {
 			ruleId	=> $rule,
 			level	 => "error",
-			message   => { text => $message },
+			message => { text => $message },
 			locations => [{
 				physicalLocation => {
 					artifactLocation => { uri => $file }
@@ -90,7 +90,7 @@ sub validate_performer {
 my %schema = (
 	MusicEvent => {
 		required => [qw(name startdate location)],
-		nested   => { location => 'PostalAddress' },
+		nested => { location => 'PostalAddress' },
 		property_validations => {
 			startdate => \&is_valid_datetime,
 		},
@@ -158,8 +158,8 @@ if ($github_mode) {
 				tool => {
 					driver => {
 						name			 => "Schema.org Validator",
-						informationUri   => "https://schema.org",
-						version		  => "1.2",
+						informationUri => "https://schema.org",
+						version		=> "1.2",
 						rules			=> [
 							{ id => "SCHEMA000", name => 'Missing @type' },
 							{ id => "SCHEMA001", name => "Missing required property" },
@@ -186,7 +186,7 @@ if ($github_mode) {
 sub validate_entity {
 	my ($entity, $depth, $currentPath) = @_;
 	$depth		 //= 0;
-	$currentPath   = defined $currentPath ? $currentPath : '';
+	$currentPath = defined $currentPath ? $currentPath : '';
 	my $indent = ' ' x ($depth * 2);
 	
 	# Every valid block should at least have an '@type'
@@ -340,6 +340,6 @@ sub load_dynamic_vocabulary {
 	} else {
 		warn "No '\@graph' key found in the vocabulary JSON.";
 	}
-	warn "Dynamic vocabulary loaded: " . scalar(keys %vocab) . " classes found.\n";
+	warn 'Dynamic vocabulary loaded: ', scalar(keys %vocab), ' classes found.';
 	return %vocab;
 }
