@@ -26,6 +26,7 @@ jobs:
       - name: Run Schema.org validator
         run: |
           perl bin/validate-schema --file samples/sample.html
+          perl bin/validate-schema --file samples/sample2.html --dynamic
 
       - name: Run unit tests
         run: prove -l
