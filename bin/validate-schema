@@ -117,12 +117,12 @@ if ($github_mode) {
 						informationUri => 'https://schema.org',
 						version => '1.2',
 						rules => [
-							{ id => "SCHEMA000", name => 'Missing @type' },
-							{ id => "SCHEMA001", name => "Missing required property" },
-							{ id => "SCHEMA003", name => "Invalid property format" },
-							{ id => "SCHEMA004", name => "Unexpected enumerated value" },
-							{ id => "SCHEMA005", name => "Invalid performer type" },
-							{ id => "SCHEMA002", name => "Unknown type" },
+							{ id => 'SCHEMA000', name => 'Missing @type' },
+							{ id => 'SCHEMA001', name => "Missing required property" },
+							{ id => 'SCHEMA003', name => "Invalid property format" },
+							{ id => 'SCHEMA004', name => "Unexpected enumerated value" },
+							{ id => 'SCHEMA005', name => "Invalid performer type" },
+							{ id => 'SCHEMA002', name => "Unknown type" },
 						],
 					},
 				},
@@ -274,6 +274,8 @@ sub validate_entity {
 		unless ($github_mode) {
 			print "${indent}✓ $type passes basic validation at ", ($currentPath || 'root'), "\n\n";
 		}
+	} elsif($dynamic_mode && exists($dynamic_schema{$type})) {
+		dynamic_validate_entity($entity, $type, ($currentPath || 'root'), $indent);
 	} else {
 		push_validation("SCHEMA002", "Unknown type '$type'. Skipping detailed rules check.", ($currentPath || 'root'));
 	}
@@ -489,37 +491,58 @@ sub load_dynamic_vocabulary
 	my %class_vocab;
 	my %prop_vocab;
 
-	if(exists $data->{'@graph'} && ref($data->{'@graph'}) eq 'ARRAY') {
+	if (exists $data->{'@graph'} && ref($data->{'@graph'}) eq 'ARRAY') {
 		for my $item (@{ $data->{'@graph'} }) {
 			next unless exists $item->{'@type'};
 			my $item_type = $item->{'@type'};
 
-			# Check for class definitions
+			# ──────────────── CLASS DEFINITIONS ─────────────────
 			my $is_class = 0;
-			if (ref($item_type) eq 'ARRAY') {
+			if (ref $item_type eq 'ARRAY') {
 				$is_class = grep { $_ eq 'rdfs:Class' } @{$item_type};
 			} else {
 				$is_class = ($item_type eq 'rdfs:Class');
 			}
 			if ($is_class) {
-				my $label = $item->{'rdfs:label'} // $item->{'http://www.w3.org/2000/01/rdf-schema#label'};
+				# 1) Human-readable label
+				my $label = $item->{'rdfs:label'}
+						 // $item->{'http://www.w3.org/2000/01/rdf-schema#label'};
 				next unless $label;
-				$label = (ref($label) eq 'ARRAY') ? $label->[0] : $label;
+				$label = ref($label) eq 'ARRAY' ? $label->[0] : $label;
 				$class_vocab{$label} = $item;
+
+				# 2) Short type name from @id (e.g. "MusicGroup")
+				if (my $full_id = $item->{'@id'}) {
+					if ($full_id =~ m{([^/:]+)$}) {
+						my $type_name = $1;
+						$class_vocab{$type_name} = $item;
+					}
+				}
 			}
 
-			# Check for property definitions (e.g. items with @type 'rdf:Property')
+			# ───────────── PROPERTY DEFINITIONS ────────────────
 			my $is_prop = 0;
-			if (ref($item_type) eq 'ARRAY') {
-				$is_prop = grep { $_ eq 'rdf:Property' } @$item_type;
-			} else {
+			if (ref $item_type eq 'ARRAY') {
+				$is_prop = grep { $_ eq 'rdf:Property' } @{$item_type};
+			}
+			else {
 				$is_prop = ($item_type eq 'rdf:Property');
 			}
 			if ($is_prop) {
-				my $label = $item->{'rdfs:label'} // $item->{'http://www.w3.org/2000/01/rdf-schema#label'};
+				# 1) Human-readable label
+				my $label = $item->{'rdfs:label'}
+						 // $item->{'http://www.w3.org/2000/01/rdf-schema#label'};
 				next unless $label;
-				$label = (ref($label) eq 'ARRAY') ? $label->[0] : $label;
+				$label = ref($label) eq 'ARRAY' ? $label->[0] : $label;
 				$prop_vocab{$label} = $item;
+
+				# 2) Short property name from @id (e.g. "startDate")
+				if (my $full_id = $item->{'@id'}) {
+					if ($full_id =~ m{([^/:]+)$}) {
+						my $prop_name = $1;
+						$prop_vocab{$prop_name} = $item;
+					}
+				}
 			}
 		}
 	} else {
