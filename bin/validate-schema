@@ -10,6 +10,7 @@ use Getopt::Long;
 use LWP::UserAgent;
 use Locale::Country;
 use Scalar::Util 'looks_like_number';
+use URI;
 
 # Command-line options
 my $file;
@@ -23,6 +24,8 @@ GetOptions(
 ) or die "Usage: $0 --file input.html [--github] [--dynamic]";
 
 die "Usage: $0 --file input.html [--github] [--dynamic]" unless $file;
+
+my $exit_code = 0;
 
 my %dynamic_properties;	# Global variable to store property definitions
 
@@ -137,6 +140,8 @@ if ($github_mode) {
 	print "SARIF output written to schema_validation.sarif\n";
 }
 
+exit $exit_code;
+
 #-----------------------------------------------------------------
 # Helper: push_validation
 # Centralizes error/warning message production.
@@ -156,6 +161,22 @@ sub push_validation {
 	} else {
 		print "✗ [$rule] $message at $location\n";
 	}
+	# map individual rule names to numeric exit codes
+	my %exit_map = (
+		"SCHEMA000" => 2,	# missing/invalid @type
+		"SCHEMA001" => 3,	# missing required property
+		"SCHEMA002" => 4,	# unknown type
+		"SCHEMA003" => 5,	# enum or format violation
+		"SCHEMA004" => 6,	# nested‐property type mismatch
+		"SCHEMA005" => 7,	# cross‐field validation failure
+		"SCHEMA_DYN0" => 10,	# no dynamic definition
+		"SCHEMA_DYN1" => 11,	# nested‐object missing @type
+		"SCHEMA_DYN2" => 12,	# nested‐object unrecognized type
+		"SCHEMA_DYNFMT" => 13,	# property format mismatch
+		"SCHEMA_CTRY" => 20,	# invalid country code
+		# …add your other rule→code mappings here…
+	);
+	$exit_code = $exit_map{$rule} // 99;
 }
 
 #-----------------------------------------------------------------
@@ -298,45 +319,67 @@ sub validate_property_format
 
 	return unless defined $range;
 
-	my @expected_types;
-	if(ref($range) eq 'ARRAY') {
-		@expected_types = @{$range};
-	} else {
-		@expected_types = ($range);
-	}
+	# Gather expected types (short names, e.g. "URL", "Text", "DateTime")
+	my @expected = ref $range eq 'ARRAY' ? @$range : ($range);
+	@expected = map { ref($_) ? ($_->{'@id'}||'') : $_ } @expected;
+	@expected = map { s{^.*/}{}r } @expected;	# strip URI to short name
 
 	my $valid = 0;
-	foreach my $expected (@expected_types) {
-		# Expected type might be a hash reference (with @id) or a scalar.
-		my $expected_type = ref($expected) ? ($expected->{'@id'} || '') : $expected;
-		warn $expected_type;
-		if($expected_type eq 'http://schema.org/Date' || $expected_type eq 'Date') {
-			if($value =~ /^\d{4}-\d{2}-\d{2}$/) { $valid = 1; last; }
-		}
-		elsif ($expected_type eq 'http://schema.org/DateTime' || $expected_type eq 'DateTime') {
-			if ($value =~ /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?$/) { $valid = 1; last; }
-		}
-		elsif ($expected_type eq 'http://schema.org/Time' || $expected_type eq 'Time') {
-			if ($value =~ /^\d{2}:\d{2}(?::\d{2})?$/) { $valid = 1; last; }
-		}
-		elsif ($expected_type eq 'http://schema.org/Number' || $expected_type eq 'Number') {
-			if (defined $value && $value =~ /^\d+(\.\d+)?$/) { $valid = 1; last; }
-		}
-		elsif ($expected_type eq 'http://schema.org/Boolean' || $expected_type eq 'Boolean') {
-			if ($value =~ /^(?:true|false)$/i) { $valid = 1; last; }
-		} elsif ($expected_type =~ /Country$/) {
+	foreach my $type (@expected) {
+		next unless $type;
+		if(($type eq 'Text') || ($type eq 'schema:Text')) {
+			# anything goes
+			$valid = 1; last;
+		} elsif ($type eq 'URL') {
+			my $uri = URI->new($value);
+			if ($uri->scheme && $uri->host) {
+				$valid = 1; last;
+			}
+		} elsif ($type eq 'Email') {
+			# simple regex; swap in Email::Valid->address($value) if you like
+			if ($value =~ /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/) {
+				$valid = 1; last;
+			}
+		} elsif ($type eq 'Date') {
+			if ($value =~ /^\d{4}-\d{2}-\d{2}$/) {
+				$valid = 1; last;
+			}
+		} elsif ($type eq 'DateTime') {
+			if ($value =~ /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?$/) {
+				$valid = 1; last;
+			}
+		} elsif ($type eq 'Time') {
+			if ($value =~ /^\d{2}:\d{2}(?::\d{2})?$/) {
+				$valid = 1; last;
+			}
+		} elsif ($type eq 'Number' || $type eq 'Integer') {
+			if (defined $value && $value =~ /^\d+(\.\d+)?$/) {
+				$valid = 1; last;
+			}
+		} elsif ($type eq 'Boolean') {
+			if ($value =~ /^(?:true|false)$/i) {
+				$valid = 1; last;
+			}
+		} elsif(($type eq 'Country') || ($type eq 'schema:Country')) {
 			# If this property is addressCountry, require 2-letter ISO code
 			my $code = uc($value);
 			if(Locale::Country::code2country($code)) {
 				$valid = 1;
 				last;
 			}
+		} else {
+			# Add more specialized types here as needed...
+			# TODO:
+			#	Adding checks for GeoCoordinates (latitude/longitude ranges).
+			#	Validating PostalCode with country-specific regexes.
+			#	Checking Language codes (ISO 639-1).
+			#	Incorporating ContactPoint types (telephone patterns).
+			warn "Add validation for '$type', needed for '$prop_name'";
 		}
-		# Extend with additional checks (e.g. URL, Text) as needed.
 	}
 
-	unless ($valid) {
-		push_validation("SCHEMA_DYNFMT",
+	unless($valid) {
+		push_validation('SCHEMA_DYNFMT',
 			"Value '$value' for property '$prop_name' does not conform to any expected format.",
 			$location
 		);
