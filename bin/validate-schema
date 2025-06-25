@@ -289,22 +289,13 @@ sub validate_property_format
 {
 	my ($prop_name, $value, $prop_def, $location) = @_;
 
-	# If this property is addressCountry, require 2-letter ISO code
-	if ($prop_name eq 'addressCountry') {
-		# Uppercase it for consistency
-		my $code = uc($value);
-		unless (Locale::Country::code2country($code)) {
-			push_validation(
-				'SCHEMA_CTRY', 
-				"Value '$value' for property '$prop_name' is not a valid 2-letter ISO country code", 
-				$location
-			);
-		}
-		return;
-	}
-
 	# Attempt to extract the expected type(s) from rangeIncludes.
-	my $range = $prop_def->{'http://schema.org/rangeIncludes'} // $prop_def->{'rangeIncludes'};
+	# my $range = $prop_def->{'http://schema.org/rangeIncludes'}
+		# // $prop_def->{'schema:rangeIncludes'}
+		# // $prop_def->{'rangeIncludes'};
+	my ($key) = grep { /(?:schema:)?rangeIncludes$/ } keys %{$prop_def};
+	my $range = $key ? $prop_def->{$key} : undef;
+
 	return unless defined $range;
 
 	my @expected_types;
@@ -318,6 +309,7 @@ sub validate_property_format
 	foreach my $expected (@expected_types) {
 		# Expected type might be a hash reference (with @id) or a scalar.
 		my $expected_type = ref($expected) ? ($expected->{'@id'} || '') : $expected;
+		warn $expected_type;
 		if($expected_type eq 'http://schema.org/Date' || $expected_type eq 'Date') {
 			if($value =~ /^\d{4}-\d{2}-\d{2}$/) { $valid = 1; last; }
 		}
@@ -332,6 +324,13 @@ sub validate_property_format
 		}
 		elsif ($expected_type eq 'http://schema.org/Boolean' || $expected_type eq 'Boolean') {
 			if ($value =~ /^(?:true|false)$/i) { $valid = 1; last; }
+		} elsif ($expected_type =~ /Country$/) {
+			# If this property is addressCountry, require 2-letter ISO code
+			my $code = uc($value);
+			if(Locale::Country::code2country($code)) {
+				$valid = 1;
+				last;
+			}
 		}
 		# Extend with additional checks (e.g. URL, Text) as needed.
 	}
