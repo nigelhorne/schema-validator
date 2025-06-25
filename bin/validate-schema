@@ -7,8 +7,9 @@ use Mojo::DOM;
 use JSON::MaybeXS qw(decode_json encode_json);
 use Encode qw(decode);
 use Getopt::Long;
-use Scalar::Util 'looks_like_number';
 use LWP::UserAgent;
+use Locale::Country;
+use Scalar::Util 'looks_like_number';
 
 # Command-line options
 my $file;
@@ -277,15 +278,30 @@ sub validate_entity {
 	} elsif($dynamic_mode && exists($dynamic_schema{$type})) {
 		dynamic_validate_entity($entity, $type, ($currentPath || 'root'), $indent);
 	} else {
-		push_validation("SCHEMA002", "Unknown type '$type'. Skipping detailed rules check.", ($currentPath || 'root'));
+		push_validation('SCHEMA002', "Unknown type '$type'. Skipping detailed rules check.", ($currentPath || 'root'));
 	}
 }
 
 #-----------------------------------------------------------------
 
 # Helper: Validate a property’s format against its expected range from the dynamic vocabulary.
-sub validate_property_format {
+sub validate_property_format
+{
 	my ($prop_name, $value, $prop_def, $location) = @_;
+
+	# If this property is addressCountry, require 2-letter ISO code
+	if ($prop_name eq 'addressCountry') {
+		# Uppercase it for consistency
+		my $code = uc($value);
+		unless (Locale::Country::code2country($code)) {
+			push_validation(
+				'SCHEMA_CTRY', 
+				"Value '$value' for property '$prop_name' is not a valid 2-letter ISO country code", 
+				$location
+			);
+		}
+		return;
+	}
 
 	# Attempt to extract the expected type(s) from rangeIncludes.
 	my $range = $prop_def->{'http://schema.org/rangeIncludes'} // $prop_def->{'rangeIncludes'};

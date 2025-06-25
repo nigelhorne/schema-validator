@@ -21,7 +21,7 @@ jobs:
       - name: Install CPAN dependencies
         run: |
           # cpanm --installdeps .
-          cpanm -iqn --skip-satisfied Mojo::DOM JSON::MaybeXS Encode Getopt::Long Test::Most FindBin LWP::Protocol::https IPC::System::Simple
+          cpanm -iqn --skip-satisfied Mojo::DOM JSON::MaybeXS Encode Getopt::Long Test::Most FindBin LWP::Protocol::https IPC::System::Simple Locale::Country
 
       - name: Run Schema.org validator
         run: |
