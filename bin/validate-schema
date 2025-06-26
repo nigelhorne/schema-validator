@@ -340,8 +340,8 @@ sub validate_property_format
 			if ($value =~ /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/) {
 				$valid = 1; last;
 			}
-		} elsif ($type eq 'Date') {
-			if ($value =~ /^\d{4}-\d{2}-\d{2}$/) {
+		} elsif(($type eq 'Date') || ($type eq 'schema:Date')) {
+			if($value =~ /^\d{4}-\d{2}-\d{2}$/) {
 				$valid = 1; last;
 			}
 		} elsif ($type eq 'DateTime') {
@@ -364,13 +364,11 @@ sub validate_property_format
 			# If this property is addressCountry, require 2-letter ISO code
 			my $code = uc($value);
 			if(Locale::Country::code2country($code)) {
-				$valid = 1;
-				last;
+				$valid = 1; last;
 			}
 		} elsif(($type eq 'Gender') || ($type eq 'schema:GenderType')) {
 			if(($value eq 'Male') || ($value eq 'Female')) {
-				$valid = 1;
-				last;
+				$valid = 1; last;
 			}
 		} else {
 			# Add more specialized types here as needed...
