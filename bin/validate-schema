@@ -367,6 +367,11 @@ sub validate_property_format
 				$valid = 1;
 				last;
 			}
+		} elsif(($type eq 'Gender') || ($type eq 'schema:GenderType')) {
+			if(($value eq 'Male') || ($value eq 'Female')) {
+				$valid = 1;
+				last;
+			}
 		} else {
 			# Add more specialized types here as needed...
 			# TODO:
