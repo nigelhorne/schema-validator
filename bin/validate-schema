@@ -3,6 +3,7 @@ use strict;
 use warnings;
 use autodie qw(:all);
 
+use DateTime::Format::ISO8601;
 use Mojo::DOM;
 use JSON::MaybeXS qw(decode_json encode_json);
 use Encode qw(decode);
@@ -341,7 +342,8 @@ sub validate_property_format
 				$valid = 1; last;
 			}
 		} elsif(($type eq 'Date') || ($type eq 'schema:Date')) {
-			if($value =~ /^\d{4}-\d{2}-\d{2}$/) {
+			# if($value =~ /^\d{4}-\d{2}-\d{2}$/) {
+			if(is_valid_iso8601($value)) {
 				$valid = 1; last;
 			}
 		} elsif ($type eq 'DateTime') {
@@ -618,4 +620,16 @@ sub load_dynamic_vocabulary
 		' classes and ', scalar(keys %dynamic_properties), ' properties found.';
 
 	return %dynamic_schema;
+}
+
+sub is_valid_iso8601
+{
+	my $string = shift;
+
+	eval { DateTime::Format::ISO8601->parse_datetime($string) };
+
+	if($@) {
+		return 0;	# Invalid format
+	};
+	return 1;
 }
