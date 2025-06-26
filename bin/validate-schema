@@ -7,6 +7,7 @@ use DateTime::Format::ISO8601;
 use Mojo::DOM;
 use JSON::MaybeXS qw(decode_json encode_json);
 use Encode qw(decode);
+use File::Spec;
 use Getopt::Long;
 use LWP::UserAgent;
 use Locale::Country;
@@ -26,6 +27,19 @@ GetOptions(
 
 die "Usage: $0 --file input.html [--github] [--dynamic]" unless $file;
 
+my $cache_dir = $ENV{'CACHE_DIR'};
+
+if(!defined($cache_dir)) {
+	require File::HomeDir;
+	File::HomeDir->import();
+
+	# $cache_dir = File::Spec->catfile(File::Spec->tmpdir(), 'cache', 'http-cache-transparent');
+	$cache_dir = File::Spec->catfile(File::HomeDir->my_home(), '.cache');
+}
+
+if(!-d $cache_dir) {
+	mkdir $cache_dir, 02755 || die "$cache_dir: $@";
+}
 my $exit_code = 0;
 
 my %dynamic_properties;	# Global variable to store property definitions
@@ -164,17 +178,17 @@ sub push_validation {
 	}
 	# map individual rule names to numeric exit codes
 	my %exit_map = (
-		"SCHEMA000" => 2,	# missing/invalid @type
-		"SCHEMA001" => 3,	# missing required property
-		"SCHEMA002" => 4,	# unknown type
-		"SCHEMA003" => 5,	# enum or format violation
-		"SCHEMA004" => 6,	# nested‐property type mismatch
-		"SCHEMA005" => 7,	# cross‐field validation failure
-		"SCHEMA_DYN0" => 10,	# no dynamic definition
-		"SCHEMA_DYN1" => 11,	# nested‐object missing @type
-		"SCHEMA_DYN2" => 12,	# nested‐object unrecognized type
-		"SCHEMA_DYNFMT" => 13,	# property format mismatch
-		"SCHEMA_CTRY" => 20,	# invalid country code
+		'SCHEMA000' => 2,	# missing/invalid @type
+		'SCHEMA001' => 3,	# missing required property
+		'SCHEMA002' => 4,	# unknown type
+		'SCHEMA003' => 5,	# enum or format violation
+		'SCHEMA004' => 6,	# nested‐property type mismatch
+		'SCHEMA005' => 7,	# cross‐field validation failure
+		'SCHEMA_DYN0' => 10,	# no dynamic definition
+		'SCHEMA_DYN1' => 11,	# nested‐object missing @type
+		'SCHEMA_DYN2' => 12,	# nested‐object unrecognized type
+		'SCHEMA_DYNFMT' => 13,	# property format mismatch
+		'SCHEMA_CTRY' => 20,	# invalid country code
 		# …add your other rule→code mappings here…
 	);
 	$exit_code = $exit_map{$rule} // 99;
@@ -395,7 +409,8 @@ sub validate_property_format
 # Now, in addition to checking nested objects for a valid @type,
 # this function also examines scalar values (or arrays of scalars)
 # and validates their format via dynamic property definitions.
-sub dynamic_validate_entity {
+sub dynamic_validate_entity
+{
 	my ($entity, $type, $currentPath, $indent) = @_;
 
 	if (exists $dynamic_schema{$type}) {
@@ -480,11 +495,15 @@ sub dynamic_validate_entity {
 # It now handles both compact and expanded keys.
 sub load_dynamic_vocabulary
 {
-	my $cache_file = 'schemaorg_dynamic_vocabulary.jsonld';
+	my $cache_file = File::Spec->catfile($cache_dir, 'schema_validator');
 	my $cache_duration = 86400;	# Cache expires in 1 day (86400 seconds)
 	my $content;
 	my $use_cache = 0;
 
+	if(!-d $cache_file) {
+		mkdir $cache_file, 02755 || die "$cache_file: $@";
+	}
+	$cache_file = File::Spec->catfile($cache_file, 'schemaorg_dynamic_vocabulary.jsonld');
 	if (-e $cache_file) {
 		my $mtime = (stat($cache_file))[9];
 		if(time - $mtime < $cache_duration) {
@@ -504,23 +523,9 @@ sub load_dynamic_vocabulary
 		# Download the vocabulary from Schema.org
 		if(eval { require HTTP::Cache::Transparent; }) {
 			HTTP::Cache::Transparent->import();
-			my $cache_dir;
-
-			if(my $e = $ENV{'CACHE_DIR'}) {
-				$cache_dir = File::Spec->catfile($e, 'http-cache-transparent');
-			} else {
-				require File::HomeDir;
-				File::HomeDir->import();
-
-				# $cache_dir = File::Spec->catfile(File::Spec->tmpdir(), 'cache', 'http-cache-transparent');
-				$cache_dir = File::Spec->catfile(File::HomeDir->my_home(), '.cache', 'http-cache-transparent');
-			}
-
-			if(!-d $cache_dir) {
-				mkdir $cache_dir, 02755 || die "$cache_dir: $@";
-			}
+			my $dir = File::Spec->catfile($cache_dir, 'http-cache-transparent');
 			HTTP::Cache::Transparent::init({
-				BasePath => $cache_dir,
+				BasePath => $dir,
 				# Verbose => $opts{'v'} ? 1 : 0,
 				Verbose => 1,
 				NoUpdate => 60 * 60 * 24,
