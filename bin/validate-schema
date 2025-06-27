@@ -398,10 +398,17 @@ sub validate_property_format
 	}
 
 	unless($valid) {
-		push_validation('SCHEMA_DYNFMT',
-			"Value '$value' for property '$prop_name' does not conform to any expected format.",
-			$location
-		);
+		if($value) {
+			push_validation('SCHEMA_DYNFMT',
+				"Value '$value' for property '$prop_name' does not conform to any expected format.",
+				$location
+			);
+		} else {
+			push_validation('SCHEMA_DYNFMT',
+				"Unexpected empty value for property '$prop_name'.",
+				$location
+			);
+		}
 	}
 }
 
