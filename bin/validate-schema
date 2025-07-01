@@ -357,7 +357,7 @@ sub validate_property_format
 			}
 		} elsif(($type eq 'Date') || ($type eq 'schema:Date')) {
 			# if($value =~ /^\d{4}-\d{2}-\d{2}$/) {
-			if(is_valid_iso8601($value)) {
+			if($value && is_valid_iso8601($value)) {
 				$valid = 1; last;
 			}
 		} elsif ($type eq 'DateTime') {
