@@ -14,6 +14,12 @@ For basic usage, simply run
 bin/validate-schema --file sample/sample.html
 ```
 to receive interactive console feedback about any missing or invalid properties.
+
+## Integration with GitHub Actions
+
 To integrate with GitHub Code Scanning and CI/CD pipelines, you can activate SARIF output by adding the --github flag, which aggregates diagnostics into a schema_validation.sarif file.
-Additionally, if you want your validations to be driven by the most current standards, the --dynamic flag instructs the tool to download and cache the latest Schema.org vocabulary (currently loading over 900 classes) so that dynamic validations can be performed against live schema definitions.
-You may combine these flags as needed—using --file with either or both of --github and --dynamic—to tailor the tool for local testing, automated code analysis, or an in‑depth schema audit.
+
+## Dynamic Mode
+
+If you want your validations to be driven by the most current standards, the --dynamic flag instructs the tool to download and cache the latest Schema.org vocabulary (currently loading over 900 classes) so that dynamic validations can be performed against live schema definitions.
+You may combine these flags as needed—using --file with either or both of --github and --dynamic to tailor the tool for local testing, automated code analysis, or an in‑depth schema audit.

@@ -42,19 +42,12 @@ if(!-d $cache_dir) {
 }
 my $exit_code = 0;
 
-my %dynamic_properties;	# Global variable to store property definitions
-
 # Global array to collect SARIF results during validation.
 my @sarif_results;
 
 # Global hash to store dynamic vocabulary (if requested)
 my %dynamic_schema;	# Global variable to store class definitions
-if ($dynamic_mode) {
-	%dynamic_schema = load_dynamic_vocabulary();
-	unless (%dynamic_schema) {
-		warn 'Dynamic vocabulary could not be loaded';
-	}
-}
+my %dynamic_properties;	# Global variable to store property definitions
 
 #-----------------------------------------------------------------
 # Expanded built‑in schema definition.
@@ -99,7 +92,13 @@ my $html = decode('Windows-1252', $raw_content);
 my $dom = Mojo::DOM->new($html);
 my $scripts = $dom->find('script[type="application/ld+json"]');
 
-foreach my $script ($scripts->each) {
+if($dynamic_mode && $scripts->each()) {
+	%dynamic_schema = load_dynamic_vocabulary();
+	unless (%dynamic_schema) {
+		warn 'Dynamic vocabulary could not be loaded';
+	}
+}
+foreach my $script ($scripts->each()) {
 	my $json_text = $script->all_text;
 	$json_text =~ s/^\s+|\s+$//g;
 	next unless length $json_text;
