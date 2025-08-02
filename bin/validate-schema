@@ -54,7 +54,7 @@ my %dynamic_properties;	# Global variable to store property definitions
 # Each type defines:
 #  - required: property names that must exist.
 #  - nested: properties that are nested objects (validated using another type).
-#  - property_validations: custom validations (e.g. checking that 'startdate' is a valid date).
+#  - property_validations: custom validations (e.g., checking that 'startdate' is a valid date).
 #  - enum: for properties that must match one of a given set.
 my %schema = (
 	MusicEvent => {
@@ -81,11 +81,24 @@ my %schema = (
 
 #-----------------------------------------------------------------
 # Read the input file in raw mode and decode from Windows-1252.
-open my $fh, '<:raw', $file or die "Cannot open file '$file': $!";
-local $/;
-my $raw_content = <$fh>;
-close $fh;
-my $html = decode('Windows-1252', $raw_content);
+my $html;
+if ($file =~ m{^https?://}) {
+	# It's a URL, fetch it using LWP::UserAgent
+	my $ua = LWP::UserAgent->new(timeout => 15);
+	my $response = $ua->get($file);
+
+	if(!$response->is_success()) {
+		die "Failed to fetch URL '$file': ", $response->status_line();
+	}
+	$html = decode('Windows-1252', $response->decoded_content());
+} else {
+	# Local file
+	open my $fh, '<:raw', $file or die "Cannot open file '$file': $!";
+	local $/;
+	my $raw_content = <$fh>;
+	close $fh;
+	$html = decode('Windows-1252', $raw_content);
+}
 
 #-----------------------------------------------------------------
 # Parse the HTML using Mojo::DOM (tolerates malformed markup).

@@ -14,6 +14,7 @@ For basic usage, simply run
 bin/validate-schema --file sample/sample.html
 ```
 to receive interactive console feedback about any missing or invalid properties.
+The file can be a URL.
 
 ## Integration with GitHub Actions
 
