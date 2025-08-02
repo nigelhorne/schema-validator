@@ -161,7 +161,7 @@ if ($github_mode) {
 			},
 		],
 	};
-	open my $sfh, '>', "schema_validation.sarif" or die "Can't open output SARIF file: $!";
+	open my $sfh, '>', 'schema_validation.sarif' or die "Can't open output SARIF file: $!";
 	print $sfh encode_json($sarif_output);
 	close $sfh;
 	print "SARIF output written to schema_validation.sarif\n";
@@ -546,7 +546,7 @@ sub load_dynamic_vocabulary
 			HTTP::Cache::Transparent::init({
 				BasePath => $dir,
 				# Verbose => $opts{'v'} ? 1 : 0,
-				Verbose => 1,
+				Verbose => 0,
 				NoUpdate => 60 * 60 * 24,
 				MaxAge => 30 * 24
 			}) || die "$0: $cache_dir: $!";
