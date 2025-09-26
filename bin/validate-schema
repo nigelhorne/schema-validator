@@ -20,9 +20,9 @@ my $github_mode = 0;
 my $dynamic_mode = 0;
 
 GetOptions(
-	"file=s" => \$file,
-	"github" => \$github_mode,
-	"dynamic" => \$dynamic_mode,
+	'file=s' => \$file,
+	'github' => \$github_mode,
+	'dynamic' => \$dynamic_mode,
 ) or die "Usage: $0 --file input.html [--github] [--dynamic]";
 
 die "Usage: $0 --file input.html [--github] [--dynamic]" unless $file;
