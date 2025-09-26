@@ -1,9 +1,12 @@
 package Schema::Validator;
+
 use strict;
 use warnings;
+
 use JSON::MaybeXS qw(decode_json encode_json);
 use LWP::UserAgent;
 use Encode qw(decode);
+
 use base 'Exporter';				# Use Exporter as the base class
 our @EXPORT_OK = qw(is_valid_datetime load_dynamic_vocabulary);
 
@@ -20,7 +23,7 @@ sub is_valid_datetime {
 
 # Loads the dynamic Schema.org vocabulary from Schema.org and returns a hash mapping class labels to their definitions.
 sub load_dynamic_vocabulary {
-	my $cache_file	 = "schemaorg_dynamic_vocabulary.jsonld";
+	my $cache_file	 = 'schemaorg_dynamic_vocabulary.jsonld';
 	my $cache_duration = 86400;	# Cache expires in 1 day (86400 seconds)
 	my $content;
 	my $use_cache = 0;
@@ -111,6 +114,5 @@ sub load_dynamic_vocabulary {
 
 	return %dynamic_schema;
 }
-
 
 1;

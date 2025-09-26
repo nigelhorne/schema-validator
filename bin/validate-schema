@@ -54,11 +54,11 @@ my %dynamic_properties;	# Global variable to store property definitions
 # Each type defines:
 #  - required: property names that must exist.
 #  - nested: properties that are nested objects (validated using another type).
-#  - property_validations: custom validations (e.g., checking that 'startdate' is a valid date).
+#  - property_validations: custom validations (e.g., checking that 'startDate' is a valid date).
 #  - enum: for properties that must match one of a given set.
 my %schema = (
 	MusicEvent => {
-		required => [qw(name startdate location)],
+		required => [qw(name startDate location)],
 		nested => { location => 'PostalAddress' },
 		property_validations => {
 			startdate => \&is_valid_datetime,
